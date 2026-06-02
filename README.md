@@ -1,118 +1,59 @@
-# Face Detection Technical Assessment
+# Technical Assessment
 
-A full-stack application for implementing face detection on video content, designed as a technical assessment platform.
+This repository is organized as a two-stage frontend assessment. Each stage is isolated so candidates can work on one challenge without inheriting unrelated setup from the other stage.
 
-## Project Structure
+## Stages
 
-This repository contains two main components:
+| Stage | Focus |
+| --- | --- |
+| [Stage 1](./stage-1) | Build a Google Meet-style realtime background blur filter for the user's front camera. |
+| [Stage 2](./stage-2) | Complete the Overlap AI analytics/design test. |
 
-### Backend (`/app`)
-- **Technology**: Python Flask/FastAPI
-- **Purpose**: Provides API endpoints for face detection processing
-- **Key Files**:
-  - `main.py` - Main application entry point
-  - `helpers.py` - Utility functions and helpers
-  - `requirements.txt` - Python dependencies
+## Stage 1: Camera Background Blur
 
-### Frontend (`/frontend`)
-- **Technology**: React with TypeScript
-- **Purpose**: User interface for video playback and face detection visualization
-- **Key Files**:
-  - `src/App.tsx` - Main React component
-  - `src/components/` - Reusable UI components
-  - `src/consts.ts` - Configuration constants (video URL)
+Stage 1 starts from a small Next.js app with no backend. The app opens the user's front camera and renders the live video preview in the browser.
 
-## Getting Started
+Your task is to turn this camera preview into a realtime background blur experience similar to Google Meet:
 
-### Prerequisites
-- Python 3.8+
-- Node.js 16+
-- npm or yarn
+- Keep the person in the foreground sharp.
+- Blur the background behind the person in realtime.
+- Add a clear way to enable and disable blur.
+- Keep the camera feed responsive while processing frames.
+- Handle camera permission errors and unsupported browser APIs gracefully.
 
-### Backend Setup
+You may use any client-side library or browser API, but be prepared to explain the implementation and tradeoffs.
 
-1. Navigate to the project root directory
-2. Create and activate a virtual environment:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
+### Running Stage 1
 
-3. Install Python dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+```bash
+cd stage-1
+npm install
+npm run dev
+```
 
-4. Start the backend server:
-   ```bash
-   python app/main.py
-   ```
+Open [http://localhost:3000](http://localhost:3000) and allow camera access when prompted.
 
-The backend will run on `http://127.0.0.1:8080`
+## Stage 2: Overlap Analytics Design Test
 
-### Frontend Setup
+Stage 2 starts from a hardcoded copy of an Overlap AI analytics page. Overlap AI is focused on video clipping, editing, publishing, and analytics.
 
-1. Navigate to the frontend directory:
-   ```bash
-   cd frontend
-   ```
+Your task is to redesign or extend the analytics page so it better communicates the value Overlap provides. The page includes a provided `trendingPost` object, but you may rearrange, remove, expand, or redesign any other sections if it makes the overall analytics experience stronger.
 
-2. Install Node.js dependencies:
-   ```bash
-   npm install
-   ```
+You may change layout, visual hierarchy, cards, charts, copy, panels, drawers, sidebar treatment, and interactions. Keep the app frontend-only and keep the data hardcoded.
 
-3. Start the React development server:
-   ```bash
-   npm start
-   ```
+### Running Stage 2
 
-The frontend will run on `http://localhost:3000`
+```bash
+cd stage-2
+npm install
+npm run dev
+```
 
-## API Endpoints
+Open [http://localhost:3000](http://localhost:3000).
 
-### Backend Routes
-- `GET /hello-world` - Test endpoint to verify backend connectivity
-- Additional endpoints can be added for face detection processing
+## Repository Notes
 
-## Usage
-
-1. Start both the backend and frontend servers
-2. Open your browser to `http://localhost:3000`
-3. The video will be displayed and ready for face detection
-4. Click "Ping Backend" to test the connection between frontend and backend
-5. Implement face detection logic in the backend and connect it to the frontend
-
-## Development Notes
-
-### For Assessment Takers
-- The main task is to implement face detection functionality
-- Backend: Add face detection processing endpoints in `app/main.py`
-- Frontend: Connect to your backend endpoints from `src/App.tsx`
-- The video URL is configured in `frontend/src/consts.ts`
-
-### Project Configuration
-- Video source is configured in `frontend/src/consts.ts`
-- Backend port is set to 8080 by default
-- Frontend development server runs on port 3000
-
-## Technologies Used
-
-- **Backend**: Python, Flask/FastAPI
-- **Frontend**: React, TypeScript, HTML5 Video
-- **Styling**: CSS3 with modern responsive design
-- **Development**: Hot reload for both frontend and backend
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Implement your changes
-4. Test both backend and frontend
-5. Submit a pull request
-
-## License
-
-This project is designed for technical assessment purposes.
-
-You may use any tool you wish but you are responsible for understanding all parts of the implementation.
+- Both stages are intentionally frontend-only.
+- Do not add a Python backend.
+- Keep submissions responsive for compact laptop and mobile widths.
+- Include clear notes about your approach, tradeoffs, and browser/device assumptions.
