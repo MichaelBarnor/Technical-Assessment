@@ -1,7 +1,7 @@
-import { useEffect, useState, type RefObject } from "react";
+import { useCallback, useEffect, useState, type RefObject } from "react";
 import type { ImageSegmenter } from "@mediapipe/tasks-vision";
 
-export type BlurStatus = "off" | "loading" | "on";
+export type BlurStatus = "off" | "loading" | "on" | "unsupported" | "error";
 
 const WASM_PATH = "/mediapipe/wasm";
 // Landscape model expects 256x144 (16:9) input.
@@ -18,27 +18,66 @@ const BLUR_RADIUS = 3;
 // Fallback when ctx.filter is unsupported: shrink in steps, then scale back up.
 const BLUR_STEPS = [0.5, 0.25, 0.125, 0.0625];
 
-let segmenterPromise: Promise<ImageSegmenter> | null = null;
+const MESSAGES = {
+  unsupported: "Background blur isn't supported in this browser.",
+  loadFailed: "Background blur couldn't load. Check your connection and try again.",
+  crashed: "Background blur stopped unexpectedly. Try turning it on again."
+};
 
-function loadSegmenter() {
-  segmenterPromise ??= (async () => {
-    const { FilesetResolver, ImageSegmenter } = await import("@mediapipe/tasks-vision");
-    const fileset = await FilesetResolver.forVisionTasks(WASM_PATH);
+type Segmenter = { segmenter: ImageSegmenter; glCanvas: HTMLCanvasElement };
 
-    return ImageSegmenter.createFromOptions(fileset, {
-      baseOptions: { modelAssetPath: MODEL_PATH, delegate: "GPU" },
+let segmenterPromise: Promise<Segmenter> | null = null;
+
+async function createSegmenter(): Promise<Segmenter> {
+  const { FilesetResolver, ImageSegmenter } = await import("@mediapipe/tasks-vision");
+  const fileset = await FilesetResolver.forVisionTasks(WASM_PATH);
+
+  const create = async (delegate: "GPU" | "CPU") => {
+    const glCanvas = document.createElement("canvas");
+    const segmenter = await ImageSegmenter.createFromOptions(fileset, {
+      baseOptions: { modelAssetPath: MODEL_PATH, delegate },
+      canvas: glCanvas,
       runningMode: "VIDEO",
       outputConfidenceMasks: true,
       outputCategoryMask: false
     });
-  })();
+    return { segmenter, glCanvas };
+  };
+
+  try {
+    return await create("GPU");
+  } catch {
+    // No usable WebGL2 (blocklisted GPU, acceleration off, VM): slower, but still works.
+    return create("CPU");
+  }
+}
+
+function loadSegmenter() {
+  segmenterPromise ??= createSegmenter().catch((error) => {
+    segmenterPromise = null;
+    throw error;
+  });
 
   return segmenterPromise;
 }
 
+function discardSegmenter() {
+  const pending = segmenterPromise;
+  segmenterPromise = null;
+  void pending?.then(({ segmenter }) => segmenter.close()).catch(() => {});
+}
+
+function isBlurSupported() {
+  return (
+    typeof WebAssembly === "object" &&
+    document.createElement("canvas").getContext("2d") !== null
+  );
+}
+
 function createCanvas() {
   const canvas = document.createElement("canvas");
-  const ctx = canvas.getContext("2d")!;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas 2D is unavailable.");
   return { canvas, ctx };
 }
 
@@ -82,7 +121,8 @@ function smoothstep(edge0: number, edge1: number, value: number) {
 }
 
 function createRenderer(output: HTMLCanvasElement, segmenter: ImageSegmenter) {
-  const outputCtx = output.getContext("2d")!;
+  const outputCtx = output.getContext("2d");
+  if (!outputCtx) throw new Error("Canvas 2D is unavailable.");
   const input = createCanvas();
   const mask = createCanvas();
   const person = createCanvas();
@@ -190,20 +230,31 @@ export function useBackgroundBlur(
   videoRef: RefObject<HTMLVideoElement | null>,
   canvasRef: RefObject<HTMLCanvasElement | null>,
   active: boolean
-): BlurStatus {
+) {
   const [status, setStatus] = useState<BlurStatus>("off");
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const retry = useCallback(() => setAttempt((n) => n + 1), []);
 
   useEffect(() => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
+    setError(null);
 
     if (!active || !video || !canvas) {
       setStatus("off");
       return;
     }
 
+    if (!isBlurSupported()) {
+      setStatus("unsupported");
+      setError(MESSAGES.unsupported);
+      return;
+    }
+
     let cancelled = false;
     let frameHandle = 0;
+    let glCanvas: HTMLCanvasElement | null = null;
     setStatus("loading");
 
     const schedule = (tick: () => void) => {
@@ -213,32 +264,60 @@ export function useBackgroundBlur(
           : requestAnimationFrame(tick);
     };
 
-    void loadSegmenter().then((segmenter) => {
+    const fail = (message: string, broken: boolean) => {
       if (cancelled) return;
+      cancelled = true;
+      if (broken) discardSegmenter();
+      setStatus("error");
+      setError(message);
+    };
 
-      const render = createRenderer(canvas, segmenter);
-      let firstFrame = true;
+    const onContextLost = () => fail(MESSAGES.crashed, true);
 
-      const tick = () => {
+    loadSegmenter().then(
+      (loaded) => {
         if (cancelled) return;
 
-        if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-          render(video);
+        glCanvas = loaded.glCanvas;
+        glCanvas.addEventListener("webglcontextlost", onContextLost);
+        let firstFrame = true;
+        let render: ReturnType<typeof createRenderer>;
 
-          if (firstFrame) {
-            firstFrame = false;
-            setStatus("on");
-          }
+        try {
+          render = createRenderer(canvas, loaded.segmenter);
+        } catch {
+          fail(MESSAGES.unsupported, false);
+          return;
         }
 
-        schedule(tick);
-      };
+        const tick = () => {
+          if (cancelled) return;
 
-      schedule(tick);
-    });
+          if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+            try {
+              render(video);
+            } catch {
+              fail(MESSAGES.crashed, true);
+              return;
+            }
+
+            if (firstFrame) {
+              firstFrame = false;
+              setStatus("on");
+            }
+          }
+
+          schedule(tick);
+        };
+
+        schedule(tick);
+      },
+      () => fail(MESSAGES.loadFailed, false)
+    );
 
     return () => {
       cancelled = true;
+      glCanvas?.removeEventListener("webglcontextlost", onContextLost);
 
       if ("cancelVideoFrameCallback" in video) {
         video.cancelVideoFrameCallback(frameHandle);
@@ -246,7 +325,7 @@ export function useBackgroundBlur(
         cancelAnimationFrame(frameHandle);
       }
     };
-  }, [active, videoRef, canvasRef]);
+  }, [active, attempt, videoRef, canvasRef]);
 
-  return status;
+  return { status, error, retry };
 }
