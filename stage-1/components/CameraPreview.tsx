@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useBackgroundBlur } from "../hooks/useBackgroundBlur";
 import { Button } from "./ui/button";
 
 type CameraState = "idle" | "requesting" | "ready" | "blocked" | "unsupported";
@@ -32,9 +33,16 @@ function getErrorMessage(error: unknown) {
 
 export function CameraPreview() {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [cameraState, setCameraState] = useState<CameraState>("idle");
   const [message, setMessage] = useState("Waiting for camera permission.");
+  const [blurEnabled, setBlurEnabled] = useState(false);
+  const blurStatus = useBackgroundBlur(
+    videoRef,
+    canvasRef,
+    blurEnabled && cameraState === "ready"
+  );
 
   const stopCamera = useCallback(() => {
     stopStream(streamRef.current);
@@ -123,6 +131,15 @@ export function CameraPreview() {
           >
             Stop
           </Button>
+          <Button
+            variant={blurEnabled ? "glass" : "outline"}
+            type="button"
+            aria-pressed={blurEnabled}
+            onClick={() => setBlurEnabled((enabled) => !enabled)}
+            disabled={!isReady}
+          >
+            {blurStatus === "loading" ? "Loading blur…" : blurEnabled ? "Blur on" : "Blur off"}
+          </Button>
         </div>
       </div>
 
@@ -133,6 +150,11 @@ export function CameraPreview() {
           muted
           playsInline
           autoPlay
+        />
+        <canvas
+          ref={canvasRef}
+          className="camera-video camera-canvas"
+          hidden={blurStatus !== "on"}
         />
 
         {!isReady && (
