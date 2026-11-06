@@ -4,8 +4,14 @@ import type { ImageSegmenter } from "@mediapipe/tasks-vision";
 export type BlurStatus = "off" | "loading" | "on";
 
 const WASM_PATH = "/mediapipe/wasm";
-const MODEL_PATH = "/mediapipe/selfie_segmenter.tflite";
-const MASK_WIDTH = 256;
+// Landscape model expects 256x144 (16:9) input.
+const MODEL_PATH = "/mediapipe/selfie_segmenter_landscape.tflite";
+const MODEL_WIDTH = 256;
+const MODEL_HEIGHT = 144;
+// Mask blur radius in mask pixels. Large values erode thin body parts and pull in nearby objects.
+const EDGE_SOFTNESS = 3;
+// Weight of the previous frame's mask; higher = less flicker but more lag on movement.
+const TEMPORAL_SMOOTHING = 0.3;
 // Blur runs on a 1/8-size copy, so the radius is in 1/8-size pixels.
 const BLUR_SCALE = 0.125;
 const BLUR_RADIUS = 3;
@@ -43,6 +49,38 @@ function resize(canvas: HTMLCanvasElement, width: number, height: number) {
   }
 }
 
+// Separable box blur with clamped edges, so the mask doesn't fade at the frame border.
+function blurMask(data: Float32Array, temp: Float32Array, width: number, height: number) {
+  const r = EDGE_SOFTNESS;
+  const size = r * 2 + 1;
+
+  for (let y = 0; y < height; y++) {
+    const row = y * width;
+    for (let x = 0; x < width; x++) {
+      let sum = 0;
+      for (let k = -r; k <= r; k++) {
+        sum += data[row + Math.min(width - 1, Math.max(0, x + k))];
+      }
+      temp[row + x] = sum / size;
+    }
+  }
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      let sum = 0;
+      for (let k = -r; k <= r; k++) {
+        sum += temp[Math.min(height - 1, Math.max(0, y + k)) * width + x];
+      }
+      data[y * width + x] = sum / size;
+    }
+  }
+}
+
+function smoothstep(edge0: number, edge1: number, value: number) {
+  const t = Math.min(1, Math.max(0, (value - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+
 function createRenderer(output: HTMLCanvasElement, segmenter: ImageSegmenter) {
   const outputCtx = output.getContext("2d")!;
   const input = createCanvas();
@@ -52,16 +90,24 @@ function createRenderer(output: HTMLCanvasElement, segmenter: ImageSegmenter) {
   const supportsFilter = "filter" in blurred.ctx;
   const steps = supportsFilter ? [] : BLUR_STEPS.map(createCanvas);
   let maskImage: ImageData | null = null;
+  let smoothed = new Float32Array(0);
+  let maskValues = new Float32Array(0);
+  let maskTemp = new Float32Array(0);
 
   return (video: HTMLVideoElement) => {
     const width = video.videoWidth;
     const height = video.videoHeight;
-    const maskHeight = Math.round((MASK_WIDTH * height) / width);
+    // Letterbox into the model input instead of stretching it.
+    const fit = Math.min(MODEL_WIDTH / width, MODEL_HEIGHT / height);
+    const maskWidth = Math.round(width * fit);
+    const maskHeight = Math.round(height * fit);
+    const offsetX = Math.floor((MODEL_WIDTH - maskWidth) / 2);
+    const offsetY = Math.floor((MODEL_HEIGHT - maskHeight) / 2);
 
     resize(output, width, height);
     resize(person.canvas, width, height);
-    resize(input.canvas, MASK_WIDTH, maskHeight);
-    resize(mask.canvas, MASK_WIDTH, maskHeight);
+    resize(input.canvas, MODEL_WIDTH, MODEL_HEIGHT);
+    resize(mask.canvas, maskWidth, maskHeight);
     resize(
       blurred.canvas,
       Math.max(1, Math.round(width * BLUR_SCALE)),
@@ -75,26 +121,41 @@ function createRenderer(output: HTMLCanvasElement, segmenter: ImageSegmenter) {
       )
     );
 
-    if (maskImage?.width !== MASK_WIDTH || maskImage.height !== maskHeight) {
-      maskImage = mask.ctx.createImageData(MASK_WIDTH, maskHeight);
+    if (maskImage?.width !== maskWidth || maskImage.height !== maskHeight) {
+      maskImage = mask.ctx.createImageData(maskWidth, maskHeight);
+      smoothed = new Float32Array(maskWidth * maskHeight);
+      maskValues = new Float32Array(maskWidth * maskHeight);
+      maskTemp = new Float32Array(maskWidth * maskHeight);
     }
 
     // Segment a small copy of the frame; the mask is scaled back up below.
-    input.ctx.drawImage(video, 0, 0, MASK_WIDTH, maskHeight);
+    input.ctx.fillRect(0, 0, MODEL_WIDTH, MODEL_HEIGHT);
+    input.ctx.drawImage(video, offsetX, offsetY, maskWidth, maskHeight);
     segmenter.segmentForVideo(input.canvas, performance.now(), (result) => {
       const confidence = result.confidenceMasks?.at(-1)?.getAsFloat32Array();
-      if (!confidence || !maskImage) return;
+      if (!confidence || !maskImage || confidence.length !== MODEL_WIDTH * MODEL_HEIGHT) return;
+
+      for (let y = 0; y < maskHeight; y++) {
+        for (let x = 0; x < maskWidth; x++) {
+          const i = y * maskWidth + x;
+          const foreground = confidence[(y + offsetY) * MODEL_WIDTH + x + offsetX];
+          smoothed[i] = smoothed[i] * TEMPORAL_SMOOTHING + foreground * (1 - TEMPORAL_SMOOTHING);
+        }
+      }
+
+      maskValues.set(smoothed);
+      blurMask(maskValues, maskTemp, maskWidth, maskHeight);
 
       const pixels = maskImage.data;
-      for (let i = 0; i < confidence.length; i++) {
+      for (let i = 0; i < maskValues.length; i++) {
         // Tighten the soft edge to reduce background halo.
-        const alpha = Math.min(1, Math.max(0, (confidence[i] - 0.25) * 2));
-        pixels[i * 4 + 3] = alpha * 255;
+        pixels[i * 4 + 3] = smoothstep(0.25, 0.75, maskValues[i]) * 255;
       }
     });
     mask.ctx.putImageData(maskImage, 0, 0);
 
     // Sharp person: upscaled mask, then video kept only where the mask is opaque.
+    person.ctx.imageSmoothingQuality = "high";
     person.ctx.globalCompositeOperation = "copy";
     person.ctx.drawImage(mask.canvas, 0, 0, width, height);
     person.ctx.globalCompositeOperation = "source-in";
