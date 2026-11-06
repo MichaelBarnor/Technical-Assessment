@@ -6,7 +6,10 @@ export type BlurStatus = "off" | "loading" | "on";
 const WASM_PATH = "/mediapipe/wasm";
 const MODEL_PATH = "/mediapipe/selfie_segmenter.tflite";
 const MASK_WIDTH = 256;
-// Each step shrinks the frame further; smaller final size = stronger blur.
+// Blur runs on a 1/8-size copy, so the radius is in 1/8-size pixels.
+const BLUR_SCALE = 0.125;
+const BLUR_RADIUS = 3;
+// Fallback when ctx.filter is unsupported: shrink in steps, then scale back up.
 const BLUR_STEPS = [0.5, 0.25, 0.125, 0.0625];
 
 let segmenterPromise: Promise<ImageSegmenter> | null = null;
@@ -45,7 +48,9 @@ function createRenderer(output: HTMLCanvasElement, segmenter: ImageSegmenter) {
   const input = createCanvas();
   const mask = createCanvas();
   const person = createCanvas();
-  const steps = BLUR_STEPS.map(createCanvas);
+  const blurred = createCanvas();
+  const supportsFilter = "filter" in blurred.ctx;
+  const steps = supportsFilter ? [] : BLUR_STEPS.map(createCanvas);
   let maskImage: ImageData | null = null;
 
   return (video: HTMLVideoElement) => {
@@ -57,6 +62,11 @@ function createRenderer(output: HTMLCanvasElement, segmenter: ImageSegmenter) {
     resize(person.canvas, width, height);
     resize(input.canvas, MASK_WIDTH, maskHeight);
     resize(mask.canvas, MASK_WIDTH, maskHeight);
+    resize(
+      blurred.canvas,
+      Math.max(1, Math.round(width * BLUR_SCALE)),
+      Math.max(1, Math.round(height * BLUR_SCALE))
+    );
     steps.forEach((step, i) =>
       resize(
         step.canvas,
@@ -90,17 +100,26 @@ function createRenderer(output: HTMLCanvasElement, segmenter: ImageSegmenter) {
     person.ctx.globalCompositeOperation = "source-in";
     person.ctx.drawImage(video, 0, 0, width, height);
 
-    // Blurred background: shrink in steps, then scale back up.
     let source: CanvasImageSource = video;
-    for (const step of steps) {
-      step.ctx.drawImage(source, 0, 0, step.canvas.width, step.canvas.height);
-      source = step.canvas;
-    }
-    for (let i = steps.length - 2; i >= 0; i--) {
-      steps[i].ctx.drawImage(source, 0, 0, steps[i].canvas.width, steps[i].canvas.height);
-      source = steps[i].canvas;
+    if (supportsFilter) {
+      const { canvas, ctx } = blurred;
+      // Overdraw past the edges so the blur doesn't fade into a dark border.
+      const pad = BLUR_RADIUS * 2;
+      ctx.filter = `blur(${BLUR_RADIUS}px)`;
+      ctx.drawImage(video, -pad, -pad, canvas.width + pad * 2, canvas.height + pad * 2);
+      source = canvas;
+    } else {
+      for (const step of steps) {
+        step.ctx.drawImage(source, 0, 0, step.canvas.width, step.canvas.height);
+        source = step.canvas;
+      }
+      for (let i = steps.length - 2; i >= 0; i--) {
+        steps[i].ctx.drawImage(source, 0, 0, steps[i].canvas.width, steps[i].canvas.height);
+        source = steps[i].canvas;
+      }
     }
 
+    outputCtx.imageSmoothingQuality = "high";
     outputCtx.drawImage(source, 0, 0, width, height);
     outputCtx.drawImage(person.canvas, 0, 0);
   };
