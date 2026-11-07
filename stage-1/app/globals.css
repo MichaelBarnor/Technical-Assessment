@@ -141,6 +141,15 @@ button {
   transform: scaleX(-1);
 }
 
+.camera-canvas {
+  position: absolute;
+  inset: 0;
+}
+
+.camera-canvas[hidden] {
+  display: none;
+}
+
 .camera-placeholder {
   position: absolute;
   inset: 0;

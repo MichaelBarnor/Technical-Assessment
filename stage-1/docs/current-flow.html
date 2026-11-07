@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Stage 1 – Current Camera Preview Flow</title>
+<style>
+  @page { size: Letter; margin: 0.6in; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", system-ui, sans-serif; color: #1f2937; font-size: 11pt; line-height: 1.45; margin: 0; }
+  h1 { font-size: 22pt; margin: 0 0 4px; }
+  .sub { color: #6b7280; margin: 0 0 18px; }
+  h2 { font-size: 14pt; border-bottom: 2px solid #e5e7eb; padding-bottom: 4px; margin: 22px 0 10px; break-after: avoid; }
+  table { width: 100%; border-collapse: collapse; margin: 6px 0 10px; font-size: 10pt; break-inside: avoid; }
+  th, td { border: 1px solid #d1d5db; padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: #f3f4f6; }
+  code { font-family: Consolas, monospace; background: #f3f4f6; padding: 1px 4px; border-radius: 3px; font-size: 9.5pt; }
+  ol, ul { margin: 6px 0; padding-left: 22px; }
+  li { margin: 3px 0; }
+  .diagram { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px; margin: 10px 0; text-align: center; break-inside: avoid; }
+  .diagram-title { font-weight: 600; font-size: 10pt; color: #4b5563; margin-bottom: 6px; text-align: left; }
+  .yes { color: #047857; font-weight: 600; }
+  .partial { color: #b45309; font-weight: 600; }
+  .no { color: #b91c1c; font-weight: 600; }
+  .page-break { break-before: page; }
+</style>
+</head>
+<body>
+
+<h1>Stage 1 – Current Camera Preview Flow</h1>
+<p class="sub">Technical Assessment · Snapshot of the existing implementation (no blur pipeline yet)</p>
+
+<h2>Overview</h2>
+<p>
+  The app is a Next.js 15 / React 19 client-rendered page. <code>app/page.tsx</code> renders a header
+  ("Realtime Background Blur") and a single <code>CameraPreview</code> component. There is no backend and
+  no video processing yet; the component displays the raw front-camera feed.
+</p>
+
+<h2>Components</h2>
+<table>
+  <tr><th>File</th><th>Role</th></tr>
+  <tr><td><code>app/page.tsx</code></td><td>Page shell and header; renders <code>CameraPreview</code></td></tr>
+  <tr><td><code>components/CameraPreview.tsx</code></td><td>Camera lifecycle, state machine, error messages, UI</td></tr>
+  <tr><td><code>components/ui/button.tsx</code></td><td>Shared button (<code>glass</code> and <code>outline</code> variants)</td></tr>
+</table>
+
+<h2>Camera Configuration</h2>
+<ul>
+  <li><code>audio: false</code></li>
+  <li><code>video.facingMode: "user"</code> (front camera)</li>
+  <li><code>video.width: { ideal: 1280 }</code>, <code>video.height: { ideal: 720 }</code></li>
+</ul>
+
+<h2>States</h2>
+<table>
+  <tr><th>State</th><th>Meaning</th><th>Message shown</th></tr>
+  <tr><td><code>idle</code></td><td>Not started or stopped</td><td>"Waiting for camera permission." / "Camera stopped."</td></tr>
+  <tr><td><code>requesting</code></td><td>Waiting on the browser permission prompt</td><td>"Requesting front camera."</td></tr>
+  <tr><td><code>ready</code></td><td>Stream attached and playing</td><td>"Front camera is live."</td></tr>
+  <tr><td><code>blocked</code></td><td><code>getUserMedia</code> or <code>play()</code> threw</td><td>Error-specific message (see Error Handling)</td></tr>
+  <tr><td><code>unsupported</code></td><td><code>navigator.mediaDevices.getUserMedia</code> is missing</td><td>"This browser does not support camera capture."</td></tr>
+</table>
+
+<div class="diagram">
+  <div class="diagram-title">State diagram</div>
+  <pre class="mermaid">
+stateDiagram-v2
+    [*] --> idle
+    idle --> unsupported: getUserMedia missing
+    idle --> requesting: mount / Start
+    requesting --> ready: stream + play() OK
+    requesting --> blocked: error thrown
+    ready --> requesting: Restart
+    ready --> idle: Stop
+    blocked --> requesting: Start
+  </pre>
+</div>
+
+<h2 class="page-break">Flow</h2>
+<ol>
+  <li>Component mounts → <code>useEffect</code> calls <code>startCamera()</code> automatically.</li>
+  <li><code>startCamera()</code>:
+    <ol type="a">
+      <li>If <code>navigator.mediaDevices?.getUserMedia</code> is missing → state <code>unsupported</code>, return.</li>
+      <li>Set state <code>requesting</code>.</li>
+      <li>Stop any existing stream and clear <code>video.srcObject</code>.</li>
+      <li>Call <code>getUserMedia(cameraConstraints)</code>.</li>
+      <li>On success: store the stream in <code>streamRef</code>, attach it to <code>&lt;video&gt;</code>, <code>await video.play()</code>, set state <code>ready</code>.</li>
+      <li>On failure: stop and clear the stream, set state <code>blocked</code>, show <code>getErrorMessage(error)</code>.</li>
+    </ol>
+  </li>
+  <li><strong>Start / Restart</strong> button → calls <code>startCamera()</code> again (disabled while <code>requesting</code>).</li>
+  <li><strong>Stop</strong> button → <code>stopCamera()</code> stops all tracks, clears <code>srcObject</code>, sets state <code>idle</code> (disabled unless <code>ready</code>).</li>
+  <li>Unmount → effect cleanup stops all tracks.</li>
+</ol>
+
+<div class="diagram">
+  <div class="diagram-title">Sequence: startup</div>
+  <pre class="mermaid">
+sequenceDiagram
+    participant U as User
+    participant C as CameraPreview
+    participant B as Browser (getUserMedia)
+    participant V as video element
+    C->>C: mount → startCamera()
+    C->>B: getUserMedia(front camera, 1280x720)
+    B->>U: Permission prompt
+    alt allowed
+        B-->>C: MediaStream
+        C->>V: attach srcObject, then play()
+        C->>C: state = ready
+    else denied / no camera / other
+        B-->>C: DOMException
+        C->>C: state = blocked + message
+    end
+  </pre>
+</div>
+
+<h2>Error Handling (Current)</h2>
+<table>
+  <tr><th>Error</th><th>Handled?</th><th>Message</th></tr>
+  <tr><td><code>getUserMedia</code> API missing</td><td class="yes">Yes</td><td>"This browser does not support camera capture."</td></tr>
+  <tr><td><code>NotAllowedError</code></td><td class="yes">Yes</td><td>"Camera permission was blocked. Allow camera access in the browser to continue."</td></tr>
+  <tr><td><code>NotFoundError</code></td><td class="yes">Yes</td><td>"No camera was found on this device."</td></tr>
+  <tr><td><code>NotReadableError</code>, <code>OverconstrainedError</code>, <code>SecurityError</code>, <code>AbortError</code>, <code>play()</code> rejection</td><td class="partial">Generic</td><td>"The camera could not be started."</td></tr>
+  <tr><td>Track <code>ended</code> mid-session (camera unplugged / permission revoked)</td><td class="no">No</td><td>UI stays in <code>ready</code></td></tr>
+</table>
+
+<h2>UI</h2>
+<ul>
+  <li>Status area uses <code>aria-live="polite"</code>; error text is styled with <code>camera-error</code>.</li>
+  <li><code>&lt;video&gt;</code> is <code>muted</code>, <code>playsInline</code>, <code>autoPlay</code>.</li>
+  <li>A placeholder overlay is shown whenever state ≠ <code>ready</code> ("Waiting for the browser permission prompt." while requesting, otherwise the current message).</li>
+</ul>
+
+<h2>Not Yet Implemented</h2>
+<ul>
+  <li>Background segmentation and blur (the stated goal of Stage 1).</li>
+</ul>
+
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({ startOnLoad: false, theme: "neutral" });
+  await mermaid.run();
+</script>
+</body>
+</html>

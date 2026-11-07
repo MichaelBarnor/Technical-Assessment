@@ -115,7 +115,7 @@ function formatTooltipValue(value: unknown) {
 }
 
 const ChartTooltipContent = React.forwardRef<HTMLDivElement, ChartTooltipContentProps>(
-  ({ active, className, hideLabel = false, label, payload, ...props }, ref) => {
+  ({ active, className, hideLabel = false, label, payload, style }, ref) => {
     const { config } = useChart();
 
     if (!active || !payload?.length) {
@@ -123,7 +123,7 @@ const ChartTooltipContent = React.forwardRef<HTMLDivElement, ChartTooltipContent
     }
 
     return (
-      <div ref={ref} className={cn("chart-tooltip", className)} {...props}>
+      <div ref={ref} className={cn("chart-tooltip", className)} style={style}>
         {!hideLabel && label ? (
           <div className="chart-tooltip-label">{label}</div>
         ) : null}
