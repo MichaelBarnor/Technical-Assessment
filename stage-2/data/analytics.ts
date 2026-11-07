@@ -23,6 +23,7 @@ export type RangeData = {
     engagementRate: RangeMetric;
     watchTime: RangeMetric;
     viewsPerPost: RangeMetric;
+    shareRate: RangeMetric;
   };
   series: SeriesPoint[];
 };
@@ -65,29 +66,30 @@ const liveHours = [
 ];
 const liveViews = [
   9800, 9100, 8400, 7200, 5900, 4600, 3800, 3300, 3100, 3600, 4800, 6900,
-  8700, 10200, 11400, 12100, 12800, 13300, 13900, 14600, 15200, 15800, 16300, 16900
+  8700, 9600, 10100, 10400, 13900, 15600, 15100, 14700, 15400, 15900, 16300, 16900
 ];
-const livePosts = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0];
+const livePosts = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0];
 
+// Posts line up with the post list: views climb the day after each publish.
 const lastSevenDays = daily(
   { month: "May", day: 26 },
-  [148200, 162400, 171900, 158300, 183600, 201800],
-  [3, 2, 4, 3, 4, 3]
-).concat({ date: "Jun 1", views: 214700, posts: 2 });
+  [148200, 151000, 176400, 163800, 189200, 184100],
+  [0, 1, 0, 1, 0, 1]
+).concat({ date: "Jun 1", views: 214700, posts: 1 });
 
 const priorSevenDays = daily(
   { month: "May", day: 19 },
-  [121400, 118900, 132600, 127300, 139800, 144100, 151200],
-  [2, 3, 2, 3, 3, 4, 3]
+  [121400, 119800, 138600, 129700, 124300, 122900, 147200],
+  [0, 1, 0, 0, 0, 1, 0]
 );
 
 const earlierSixteenDays = daily(
   { month: "May", day: 3 },
   [
-    88400, 91200, 86700, 95300, 99800, 97100, 104600, 108200,
-    102900, 111500, 115800, 113400, 119700, 117200, 124900, 122300
+    88400, 86100, 85300, 84700, 83900, 85200, 84400, 83600,
+    82900, 97200, 114800, 109900, 106100, 103500, 101800, 104300
   ],
-  [2, 2, 1, 3, 2, 2, 3, 2, 2, 3, 2, 3, 2, 3, 3, 2]
+  [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0]
 );
 
 const monthly: SeriesPoint[] = [
@@ -115,7 +117,8 @@ export const rangeData: Record<TimeRange, RangeData> = {
     metrics: {
       engagementRate: { value: "8.4%", delta: "+0.6 pts" },
       watchTime: { value: "0:44", delta: "+2.3%" },
-      viewsPerPost: { value: "34.2k", delta: "+6.1%" }
+      viewsPerPost: { value: "34.2k", delta: "+6.1%" },
+      shareRate: { value: "1.7%", delta: "+0.1 pts" }
     },
     series: liveHours.map((hour, index) => ({
       date: hour,
@@ -132,7 +135,8 @@ export const rangeData: Record<TimeRange, RangeData> = {
     metrics: {
       engagementRate: { value: "7.8%", delta: "+1.4 pts" },
       watchTime: { value: "0:43", delta: "+8.2%" },
-      viewsPerPost: { value: "31.6k", delta: "+12.7%" }
+      viewsPerPost: { value: "31.6k", delta: "+12.7%" },
+      shareRate: { value: "1.6%", delta: "+0.2 pts" }
     },
     series: lastSevenDays
   },
@@ -145,7 +149,8 @@ export const rangeData: Record<TimeRange, RangeData> = {
     metrics: {
       engagementRate: { value: "7.3%", delta: "+0.9 pts" },
       watchTime: { value: "0:42", delta: "+5.1%" },
-      viewsPerPost: { value: "29.8k", delta: "+9.4%" }
+      viewsPerPost: { value: "29.8k", delta: "+9.4%" },
+      shareRate: { value: "1.5%", delta: "+0.1 pts" }
     },
     series: [...priorSevenDays, ...lastSevenDays]
   },
@@ -158,7 +163,8 @@ export const rangeData: Record<TimeRange, RangeData> = {
     metrics: {
       engagementRate: { value: "6.9%", delta: "+0.6 pts" },
       watchTime: { value: "0:40", delta: "+3.8%" },
-      viewsPerPost: { value: "27.2k", delta: "+11.3%" }
+      viewsPerPost: { value: "27.2k", delta: "+11.3%" },
+      shareRate: { value: "1.4%", delta: "-0.1 pts" }
     },
     series: [...earlierSixteenDays, ...priorSevenDays, ...lastSevenDays]
   },
@@ -170,7 +176,8 @@ export const rangeData: Record<TimeRange, RangeData> = {
     metrics: {
       engagementRate: { value: "6.1%" },
       watchTime: { value: "0:37" },
-      viewsPerPost: { value: "22.4k" }
+      viewsPerPost: { value: "22.4k" },
+      shareRate: { value: "1.3%" }
     },
     series: monthly
   }

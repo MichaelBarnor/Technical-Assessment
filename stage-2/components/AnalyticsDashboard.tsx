@@ -152,7 +152,7 @@ const seriesConfig = {
   },
   posts: {
     label: "Posts",
-    color: "var(--chart-2)"
+    color: "var(--foreground)"
   }
 } satisfies ChartConfig;
 
@@ -269,6 +269,33 @@ function RangeToggle({
   );
 }
 
+type PostMarkerProps = {
+  cx?: number;
+  cy?: number;
+  index?: number;
+  payload?: SeriesPoint;
+};
+
+function renderPostMarker({ cx, cy, index, payload }: PostMarkerProps) {
+  const key = `post-marker-${index}`;
+
+  if (cx == null || cy == null || !payload?.posts) {
+    return <g key={key} />;
+  }
+
+  return (
+    <circle
+      cx={cx}
+      cy={cy}
+      fill="var(--color-posts)"
+      key={key}
+      r={4.5}
+      stroke="var(--background)"
+      strokeWidth={2}
+    />
+  );
+}
+
 function SignalGraph({ series }: { series: SeriesPoint[] }) {
   return (
     <ChartContainer
@@ -322,6 +349,7 @@ function SignalGraph({ series }: { series: SeriesPoint[] }) {
             strokeWidth: 2
           }}
           dataKey="views"
+          dot={renderPostMarker}
           fill="url(#views-fill)"
           fillOpacity={1}
           stroke="var(--color-views)"
@@ -330,11 +358,10 @@ function SignalGraph({ series }: { series: SeriesPoint[] }) {
           yAxisId="views"
         />
         <Line
-          activeDot={{ fill: "var(--color-posts)", r: 4, strokeWidth: 0 }}
+          activeDot={false}
           dataKey="posts"
-          dot={{ fill: "var(--color-posts)", r: 3, strokeWidth: 0 }}
-          stroke="var(--color-posts)"
-          strokeWidth={0}
+          dot={false}
+          stroke="transparent"
           type="monotone"
           yAxisId="posts"
         />
@@ -348,7 +375,8 @@ function WorkspacePanel({ data }: { data: RangeData }) {
   const headlineMetrics: HeadlineMetric[] = [
     { label: "Engagement Rate", metric: data.metrics.engagementRate, icon: ChartNoAxesCombined },
     { label: "Average Watch Time Per Post", metric: data.metrics.watchTime, icon: Clock3 },
-    { label: "Average Views Per Post", metric: data.metrics.viewsPerPost, icon: Eye }
+    { label: "Average Views Per Post", metric: data.metrics.viewsPerPost, icon: Eye },
+    { label: "Share Rate", metric: data.metrics.shareRate, icon: Share2 }
   ];
 
   return (
@@ -363,7 +391,11 @@ function WorkspacePanel({ data }: { data: RangeData }) {
               <p>{stat.label}</p>
               <div className="metric-line">
                 <strong>{stat.metric.value}</strong>
-                {stat.metric.delta ? <span>{stat.metric.delta}</span> : null}
+                {stat.metric.delta ? (
+                  <span className={stat.metric.delta.startsWith("-") ? "down" : undefined}>
+                    {stat.metric.delta}
+                  </span>
+                ) : null}
               </div>
               <small>{data.comparison}</small>
             </div>
@@ -392,7 +424,7 @@ function WorkspacePanel({ data }: { data: RangeData }) {
           <div className="visual-pane">
             <div className="legend-strip">
               <span><i />Views</span>
-              <span><i className="dot-marker" />Posts</span>
+              <span><i className="dot-marker" />Post published</span>
             </div>
             <SignalGraph series={data.series} />
           </div>
